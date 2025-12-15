@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -6,22 +6,140 @@ import {
   ScrollView,
   TouchableOpacity,
   Dimensions,
-  Image
+  ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
-// 1. Use correct SafeAreaView
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import { useRouter, useFocusEffect } from 'expo-router';
 import CustomHeader from '../../components/CustomHeader';
+import { useAuth } from '../context/AuthContext';
+import { API_URLS } from '../_config';
 
 const { width } = Dimensions.get('window');
 
+
 export default function HomeScreen() {
+  const router = useRouter();
+  const { userToken } = useAuth();
+  
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [homeData, setHomeData] = useState({
+    userName: 'Farmer',
+    stats: { healthy: 0, attention: 0, healthPercentage: 0 }
+  });
+
+  const fetchData = async () => {
+    try {
+      if (!userToken) return;
+
+      // 1. Fetch Profile (For Name)
+      let userName = 'Farmer';
+      try {
+        const profileResponse = await fetch(API_URLS.PROFILE, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `bearer ${userToken}`,
+          },
+        });
+        if (profileResponse.ok) {
+          const profileData = await profileResponse.json();
+          if (profileData.success && profileData.data?.user) {
+            userName = profileData.data.user.firstName || 'Farmer';
+          }
+        }
+      } catch (e) {
+        console.log('Profile fetch warning:', e);
+      }
+
+      // 2. Fetch Scans (For Stats)
+      // FIXED: Added ?limit=1000 to get ALL scans for accurate stats
+      const scansUrl = 'https://greenshield.up.railway.app/api/predictions/history?limit=1000';
+      console.log('Fetching Scans for Home Stats from:', scansUrl);
+      
+      const scansResponse = await fetch(scansUrl, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `bearer ${userToken}`,
+        },
+      });
+
+      const scansText = await scansResponse.text();
+      let scansData;
+      try {
+        scansData = JSON.parse(scansText);
+      } catch (e) {
+        console.log("Error parsing scans JSON");
+      }
+
+      let stats = { healthy: 0, attention: 0, healthPercentage: 0 };
+
+      if (scansResponse.ok && scansData?.success) {
+        const allScans = scansData.data?.predictions || [];
+        
+        // Filter Logic
+        const healthyCount = allScans.filter(item => 
+          item.disease?.nameEn?.toLowerCase() === 'healthy'
+        ).length;
+        
+        const attentionCount = allScans.length - healthyCount;
+        
+        const percentage = allScans.length > 0 
+          ? Math.round((healthyCount / allScans.length) * 100) 
+          : 0;
+
+        stats = {
+          healthy: healthyCount,
+          attention: attentionCount,
+          healthPercentage: percentage
+        };
+      }
+
+      setHomeData({ userName, stats });
+
+    } catch (error) {
+      console.error('Home Network Error:', error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  // Reload data whenever the screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      fetchData();
+    }, [userToken])
+  );
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    fetchData();
+  };
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#3E5936" />
+      </View>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       {/* Header */}
-      <CustomHeader title="Home" subtitle="Hello, Farmer" />
+      <CustomHeader title="Home" subtitle={`Hello, ${homeData.userName}`} />
 
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+      <ScrollView 
+        contentContainerStyle={styles.scrollContent} 
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#3E5936" />
+        }
+      >
         
         {/* Main Content Container */}
         <View style={styles.mainCard}>
@@ -33,7 +151,7 @@ export default function HomeScreen() {
             <TouchableOpacity style={[styles.statusCard, styles.cardHealthy]}>
               <View style={styles.statusIconRow}>
                 <Ionicons name="checkmark-circle-outline" size={20} color="#387C3C" />
-                <Text style={[styles.statusCount, styles.textHealthy]}>7</Text>
+                <Text style={[styles.statusCount, styles.textHealthy]}>{homeData.stats.healthy}</Text>
               </View>
               <Text style={styles.statusLabel}>Healthy</Text>
             </TouchableOpacity>
@@ -42,7 +160,7 @@ export default function HomeScreen() {
             <TouchableOpacity style={[styles.statusCard, styles.cardWarning]}>
               <View style={styles.statusIconRow}>
                 <Ionicons name="warning-outline" size={20} color="#D88D28" />
-                <Text style={[styles.statusCount, styles.textWarning]}>2</Text>
+                <Text style={[styles.statusCount, styles.textWarning]}>{homeData.stats.attention}</Text>
               </View>
               <Text style={styles.statusLabel}>Needs Attention</Text>
             </TouchableOpacity>
@@ -52,15 +170,18 @@ export default function HomeScreen() {
           <View style={styles.healthCard}>
             <View style={styles.healthHeader}>
               <Text style={styles.healthTitle}>Overall Health</Text>
-              <Text style={styles.healthPercentage}>78%</Text>
+              <Text style={styles.healthPercentage}>{homeData.stats.healthPercentage}%</Text>
             </View>
             <View style={styles.progressBarBackground}>
-              <View style={[styles.progressBarFill, { width: '78%' }]} />
+              <View style={[styles.progressBarFill, { width: `${homeData.stats.healthPercentage}%` }]} />
             </View>
           </View>
 
           {/* Show All Scans Button */}
-          <TouchableOpacity style={styles.actionButton}>
+          <TouchableOpacity 
+            style={styles.actionButton}
+            onPress={() => router.push('/Scans')}
+          >
             <Text style={styles.actionButtonText}>Show all scans</Text>
             <Ionicons name="arrow-forward" size={18} color="#000" />
           </TouchableOpacity>
@@ -76,8 +197,14 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F7F5F0',
   },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#F7F5F0',
+  },
   scrollContent: {
-    paddingBottom: 120, // Increased padding to ensure Tab Bar doesn't cover content
+    paddingBottom: 120, 
   },
   mainCard: {
     backgroundColor: '#fff',

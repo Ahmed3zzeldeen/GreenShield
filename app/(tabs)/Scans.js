@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import { 
   View, 
   Text, 
@@ -6,112 +6,109 @@ import {
   FlatList, 
   Image, 
   ActivityIndicator, 
-  RefreshControl 
+  RefreshControl,
+  Alert
 } from 'react-native';
-// Use the relative path to avoid import errors
+import { useFocusEffect } from 'expo-router';
 import CustomHeader from '../../components/CustomHeader';
-
-// REPLACE WITH YOUR ACTUAL API ENDPOINT
-const API_URL = 'https://your-project.vercel.app/api/scans';
-
-// Mock Data (matches your design)
-const MOCK_SCAN_DATA = [
-  {
-    id: '1',
-    title: 'Corn 11-05-2025',
-    response: 'Healthy',
-    confRate: '95.2%',
-    status: 'healthy',
-    image: 'https://via.placeholder.com/150/527346/FFFFFF?text=Corn', 
-  },
-  {
-    id: '2',
-    title: 'Corn 19-02-2025',
-    response: 'Gray Spot',
-    confRate: '95.2%',
-    status: 'danger',
-    image: 'https://via.placeholder.com/150/D88D28/FFFFFF?text=Spot',
-  },
-  {
-    id: '3',
-    title: 'Corn 1-5-2024',
-    response: 'Common Rust',
-    confRate: '93.4%',
-    status: 'danger',
-    image: 'https://via.placeholder.com/150/D88D28/FFFFFF?text=Rust',
-  },
-  {
-    id: '4',
-    title: 'Corn 5-7-2023',
-    response: 'Blight',
-    confRate: '90.9%',
-    status: 'danger',
-    image: 'https://via.placeholder.com/150/D88D28/FFFFFF?text=Blight',
-  },
-];
+import { API_URLS } from '../_config';
+import { useAuth } from '../context/AuthContext';
 
 export default function ScansScreen() {
+  const { userToken, signOut } = useAuth();
   const [scans, setScans] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  // Function to fetch data from Backend
   const fetchScans = async () => {
     try {
-      // --- UNCOMMENT THIS BLOCK TO CONNECT TO REAL BACKEND ---
-      /*
-      const response = await fetch(API_URL);
-      const data = await response.json();
-      if (response.ok) {
-        setScans(data); // Assuming data is an array of scans
-      } else {
-        console.error('Failed to fetch scans');
-      }
-      */
+      if (!userToken) return;
       
-      // --- REMOVE THIS BLOCK WHEN CONNECTING TO REAL BACKEND ---
-      // This simulates a network call delay using Mock Data
-      await new Promise(resolve => setTimeout(resolve, 1500)); 
-      setScans(MOCK_SCAN_DATA); 
-      // --------------------------------------------------------
+      const url = 'https://greenshield.up.railway.app/api/predictions/history?limit=1000';
+      console.log('Fetching Scans from:', url);
+      
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `bearer ${userToken}`,
+        },
+      });
 
+      const responseText = await response.text();
+      let resData;
+      try {
+        resData = JSON.parse(responseText);
+      } catch (e) {
+        throw new Error(`Server returned HTML instead of JSON. Status: ${response.status}`);
+      }
+
+      // console.log('Scans Response:', JSON.stringify(resData));
+
+      if (response.ok && resData.success) {
+        // The API returns { data: { predictions: [], pagination: {} } }
+        const predictionsList = resData.data?.predictions || [];
+        setScans(predictionsList); 
+      } else {
+        console.log('Scans Fetch Failed:', resData);
+        
+        if (response.status === 401) {
+          Alert.alert("Session Expired", "Please log in again.", [
+            { text: "OK", onPress: () => signOut() }
+          ]);
+        }
+      }
     } catch (error) {
       console.error('Error fetching scans:', error);
-      // Optional: Alert.alert("Error", "Could not fetch scans");
     } finally {
       setIsLoading(false);
       setRefreshing(false);
     }
   };
 
-  // Initial Fetch
-  useEffect(() => {
-    fetchScans();
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      fetchScans();
+    }, [userToken])
+  );
 
-  // Pull-to-refresh handler
-  const onRefresh = useCallback(() => {
+  const onRefresh = () => {
     setRefreshing(true);
     fetchScans();
-  }, []);
+  };
 
   const renderScanItem = ({ item }) => {
-    const cardBackgroundColor = item.status === 'healthy' ? '#E9F2EA' : '#FFC1C1';
+    // FIX 1: The history API puts 'disease' directly on the item, not inside 'prediction'
+    const diseaseName = item.disease?.nameEn || 'Unknown';
     
+    // Check healthy status for color
+    const isHealthy = diseaseName.toLowerCase() === 'healthy';
+    const cardBackgroundColor = isHealthy ? '#E9F2EA' : '#FFC1C1';
+    
+    // FIX 2: The history API puts 'url' directly on the item
+    const imageUrl = item.image?.url  || 'https://via.placeholder.com/150';
+    
+    // Date formatting (History uses 'uploadedAt')
+    const rawDate = item.uploadedAt || item.createdAt || item.image?.uploadedAt || item.prediction?.createdAt;
+    const dateString = rawDate ? new Date(rawDate).toDateString() : 'Unknown Date';
+
     return (
       <View style={[styles.card, { backgroundColor: cardBackgroundColor }]}>
         <Image 
-          source={{ uri: item.image }} 
+          source={{ uri: imageUrl }} 
           style={styles.cardImage} 
           resizeMode="cover"
         />
         <View style={styles.cardContent}>
-          <Text style={styles.cardTitle}>{item.title}</Text>
+          <Text style={styles.cardTitle}>{dateString}</Text>
           <Text style={styles.cardText}>
-            Response  <Text style={styles.cardValue}>{item.response}</Text>
+            Response  <Text style={styles.cardValue}>{diseaseName}</Text>
           </Text>
+          {/* Confidence might not be in the history list object, so we handle N/A */}
           <Text style={styles.cardText}>
-            Conf. rate  <Text style={styles.cardValue}>{item.confRate}</Text>
+            Conf. rate  <Text style={styles.cardValue}>
+              {item.confidence ? Math.round(item.confidence * 100) + '%' : 'N/A'}
+            </Text>
           </Text>
         </View>
       </View>
@@ -132,7 +129,7 @@ export default function ScansScreen() {
           <FlatList
             data={scans}
             renderItem={renderScanItem}
-            keyExtractor={item => item.id}
+            keyExtractor={item => item.id || Math.random().toString()}
             contentContainerStyle={styles.listContent}
             showsVerticalScrollIndicator={false}
             refreshControl={
@@ -176,6 +173,7 @@ const styles = StyleSheet.create({
   },
   listContent: {
     padding: 20,
+    paddingBottom: 100,
   },
   card: {
     flexDirection: 'row',
