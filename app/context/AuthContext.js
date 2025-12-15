@@ -34,6 +34,7 @@ export function AuthProvider({ children }) {
 
   // Logout function
   const signOut = async () => {
+    if (!userToken) return;
     await AsyncStorage.removeItem('userToken');
     setUserToken(null);
   };

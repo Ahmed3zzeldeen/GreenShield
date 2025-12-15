@@ -1,11 +1,10 @@
-import React, { useEffect } from 'react';
-import { Stack, useRouter, useSegments, useRootNavigationState } from "expo-router";
 import * as NavigationBar from 'expo-navigation-bar';
-import { Platform, View, ActivityIndicator } from 'react-native';
-import * as Updates from 'expo-updates';
+import { Stack, useRootNavigationState, useRouter, useSegments } from "expo-router";
+import React, { useEffect } from 'react';
+import { ActivityIndicator, Platform, View } from 'react-native';
 
 // 1. Import the Auth Provider
-import { AuthProvider, useAuth } from './context/AuthContext'; 
+import { AuthProvider, useAuth } from './context/AuthContext';
 
 // 2. Create a component to handle the Navigation Logic (Consumer)
 function RootLayoutNav() {
@@ -31,16 +30,10 @@ function RootLayoutNav() {
     });
 
     if (!userToken && inTabsGroup) {
-      // 3. LOGOUT HANDLING: Token is gone, but we are inside the app.
-      console.log('Token lost. Redirecting to Login...');
-      
-      // FIX: Instead of crashing with reloadAsync, properly reset navigation
-      if (router.canDismiss()) {
-        router.dismissAll(); // Clear stack history
-      }
-      router.replace('/'); // Navigate to Login'
-      console.log("cnc")
-      
+      // Not logged in, in tabs -> Redirect to Login
+      console.log('No token found. Redirecting to Login...');
+      router.replace('/LoginScreen');
+
     } else if (userToken && !inTabsGroup) {
       // Logged in, not in tabs -> Redirect to Home
       console.log('Token found. Auto-login to Home...');
@@ -61,6 +54,7 @@ function RootLayoutNav() {
       screenOptions={{ headerShown: false }}
     >
       <Stack.Screen name="index" />
+      <Stack.Screen name="LoginScreen" />
       <Stack.Screen name="RegisterScreen" />
       <Stack.Screen name="OTPScreen" />
       <Stack.Screen name="ForgotPasswordScreen" />
