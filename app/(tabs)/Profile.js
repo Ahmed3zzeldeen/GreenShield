@@ -40,9 +40,13 @@ export default function ProfileScreen() {
         });
         
         const resData = await response.json();
+        
         if (response.ok && resData.success) {
-          userData = resData.data.user;
+          // FIXED: Backend returns data directly, not inside data.user
+          // Old: userData = resData.data.user;
+          userData = resData.data; 
         }
+        console.log(resData)
       } catch (e) {
         console.log('Profile fetch error', e);
       }
@@ -50,7 +54,6 @@ export default function ProfileScreen() {
       // 2. Fetch Recent Scans (Limit 3)
       let recentScans = [];
       try {
-        // Explicitly using the history endpoint with limit=3
         const historyUrl = 'https://greenshield.up.railway.app/api/predictions/history?limit=3';
         const response = await fetch(historyUrl, {
           method: 'GET',
@@ -87,7 +90,9 @@ export default function ProfileScreen() {
         style: 'destructive',
         onPress: () => {
           signOut();
-        },
+          // router.replace('../index');
+          // restartApp()  
+              },
       },
     ]);
   };
@@ -120,11 +125,11 @@ export default function ProfileScreen() {
         {/* User Card */}
         <View style={styles.userCard}>
           <Image
-            source={{ uri: user?.image || 'https://i.pravatar.cc/150?img=12' }}
+            source={{ uri: user?.Avatar || 'https://i.pravatar.cc/150?img=12' }}
             style={styles.profileImage}
           />
           <View style={styles.userInfo}>
-            <Text style={styles.userName}>{user?.firstName || user?.name || 'Farmer'}</Text>
+            <Text style={styles.userName}>{user?.firstName +" "+ user?.lastName|| 'Farmer'}</Text>
             <Text style={styles.userRole}>{user?.role || 'User'}</Text>
           </View>
         </View>
@@ -137,15 +142,16 @@ export default function ProfileScreen() {
           </View>
           <View style={styles.detailRow}>
             <Text style={styles.detailLabel}>Farm name</Text>
-            <Text style={styles.detailValue}>{user?.farmName || 'N/A'}</Text>
+            {/* Some backends use farmName, others might not return it if null */}
+            <Text style={styles.detailValue}>{user?.farmName || 'Farm Vile'}</Text>
           </View>
           <View style={[styles.detailRow, { borderBottomWidth: 0 }]}>
             <Text style={styles.detailLabel}>Contact</Text>
-            <Text style={styles.detailValue}>{user?.phoneNumber || user?.contact || 'N/A'}</Text>
+            <Text style={styles.detailValue}>{user?.phoneNumber || user?.contact || 'Fayoum'}</Text>
           </View>
         </View>
 
-        {/* Recent Scans Section (Replaces My Fields) */}
+        {/* Recent Scans Section */}
         <View style={styles.sectionContainer}>
           <View style={styles.sectionHeaderRow}>
             <Text style={styles.sectionHeader}>Recent Scans</Text>
@@ -158,12 +164,15 @@ export default function ProfileScreen() {
             <Text style={styles.emptyText}>No recent scans found.</Text>
           ) : (
             recentScans.map((item) => {
-                // Map backend data to UI
                 const diseaseName = item.disease?.nameEn || 'Unknown';
                 const isHealthy = diseaseName.toLowerCase() === 'healthy';
                 const cardBackgroundColor = isHealthy ? '#E9F2EA' : '#FFC1C1';
                 const imageUrl = item.url || 'https://via.placeholder.com/150';
-                const dateString = item.uploadedAt ? new Date(item.uploadedAt).toDateString() : 'Unknown Date';
+                
+                // Handle different date formats
+                const rawDate = item.uploadedAt || item.createdAt;
+                const dateString = rawDate ? new Date(rawDate).toDateString() : 'Unknown Date';
+                
                 const confidence = item.confidence ? Math.round(item.confidence * 100) + '%' : 'N/A';
 
                 return (

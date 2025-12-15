@@ -2,12 +2,18 @@ import React, { useEffect } from 'react';
 import { Stack, useRouter, useSegments, useRootNavigationState } from "expo-router";
 import * as NavigationBar from 'expo-navigation-bar';
 import { Platform, View, ActivityIndicator } from 'react-native';
+import * as Updates from 'expo-updates';
+
 // 1. Import the Auth Provider
 import { AuthProvider, useAuth } from './context/AuthContext'; 
 
 // 2. Create a component to handle the Navigation Logic (Consumer)
 function RootLayoutNav() {
-  const { userToken, isLoading } = useAuth(); // Now this will work
+  // Cast to any to avoid "Property does not exist on type 'never'" error
+  const authContext = useAuth() as any;
+  const userToken = authContext?.userToken;
+  const isLoading = authContext?.isLoading ?? true; 
+  
   const segments = useSegments();
   const router = useRouter();
   const navigationState = useRootNavigationState();
@@ -18,13 +24,26 @@ function RootLayoutNav() {
 
     const inTabsGroup = segments[0] === '(tabs)';
 
-    console.log('Auth State Change:', { userToken, inTabsGroup });
+    console.log('Auth Check:', { 
+      token: userToken ? 'Present' : 'Missing', 
+      inTabs: inTabsGroup, 
+      segments: segments 
+    });
 
     if (!userToken && inTabsGroup) {
-      // Not logged in, but in tabs -> Redirect to Login
-      router.replace('/'); 
+      // 3. LOGOUT HANDLING: Token is gone, but we are inside the app.
+      console.log('Token lost. Redirecting to Login...');
+      
+      // FIX: Instead of crashing with reloadAsync, properly reset navigation
+      if (router.canDismiss()) {
+        router.dismissAll(); // Clear stack history
+      }
+      router.replace('/'); // Navigate to Login'
+      console.log("cnc")
+      
     } else if (userToken && !inTabsGroup) {
       // Logged in, not in tabs -> Redirect to Home
+      console.log('Token found. Auto-login to Home...');
       router.replace('/(tabs)');
     }
   }, [userToken, segments, isLoading, navigationState?.key]);
@@ -38,7 +57,9 @@ function RootLayoutNav() {
   }
 
   return (
-    <Stack screenOptions={{ headerShown: false }}>
+    <Stack 
+      screenOptions={{ headerShown: false }}
+    >
       <Stack.Screen name="index" />
       <Stack.Screen name="RegisterScreen" />
       <Stack.Screen name="OTPScreen" />
@@ -49,7 +70,7 @@ function RootLayoutNav() {
   );
 }
 
-// 3. Export the Root Layout wrapped in the Provider
+// 4. Export the Root Layout wrapped in the Provider
 export default function RootLayout() {
   useEffect(() => {
     if (Platform.OS === 'android') {
